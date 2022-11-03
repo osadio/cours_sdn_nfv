@@ -1,3 +1,5 @@
+from mininet.topo import Topo
+
 class MyTopo( Topo ):  
     def __init__( self ):
         # Initialize topology
