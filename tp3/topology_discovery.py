@@ -35,12 +35,13 @@ class TopologyDiscovery(app_manager.RyuApp):
     def __init__(self, *args, **kwargs):
         super(TopologyDiscovery, self).__init__(*args, **kwargs)
         self.topology_api_app = self
-	self.switches = []     # self.switches = [dpid,]
-	self.links = []        # self.links = [{'src': {'sw': link.src.dpid, 'port': link.src.port_no},
-                                               'dst': {'sw': link.dst.dpid, 'port': link.dst.port_no}},]
-	self.hosts = []        # self.hosts = {(sw,port):(ip, mac),}
+        self.switches = []     # self.switches = [dpid,]
+        self.links = []        # self.links = [{'src': {'sw': link.src.dpid, 'port': link.src.port_no},
+                               #              'dst': {'sw': link.dst.dpid, 'port': link.dst.port_no}},]
+        self.hosts = {}        # self.hosts = {(sw,port):(ip, mac),}
+        # Start thread
+        self.discover_thread = hub.spawn(self._discover)
         
-
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
         datapath = ev.msg.datapath
@@ -80,11 +81,6 @@ class TopologyDiscovery(app_manager.RyuApp):
         self.links = [{'src': {'sw': link.src.dpid, 'port': link.src.port_no},
                  'dst': {'sw': link.dst.dpid, 'port': link.dst.port_no}} for link in links_list]
 	
-        print("# Switches list :")
-        print(switches)
-        print("# Links")
-        print(links)
-	
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
         """
@@ -100,20 +96,22 @@ class TopologyDiscovery(app_manager.RyuApp):
         if arp_pkt:
             arp_src_ip = arp_pkt.src_ip
             mac = arp_pkt.src_mac
-            self.register_access_info(datapath.id, in_port, arp_src_ip, mac)
+            self.hosts.update({(datapath.id, in_port):(arp_src_ip, mac)})
         elif ip_pkt:
             ip_src_ip = ip_pkt.src
             eth = pkt.get_protocols(ethernet.ethernet)[0]
             mac = eth.src
-            self.register_access_info(datapath.id, in_port, ip_src_ip, mac)
+            self.hosts.update({(datapath.id, in_port):(ip_src_ip, mac)})
         else:
             pass
 
-    def _discovery(self):
+    def _discover(self):
         while True:
-            
-		
-		
-		
-		
-
+            print("\n")
+            print("# Switches list")
+            print(self.switches)
+            print("# Links")
+            print(self.links)
+            print("# Hosts")
+            print(self.hosts)
+            hub.sleep(10)
