@@ -18,7 +18,7 @@ class MyTopo( Topo ):
 
         # Add links Host to Switch
         self.addLink(h1, s1)
-        self.addLink(s2, s5)
+        self.addLink(h2, s5)
 
         # Add links Switch to Swttch
         self.addLink(s1, s2)
