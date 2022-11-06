@@ -17,11 +17,9 @@ import time
 
 
 class TopologyDiscovery(app_manager.RyuApp):
-
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
 
     # List the event list should be listened.
-
     events = [
         event.EventSwitchEnter,
         event.EventSwitchLeave,
@@ -38,7 +36,8 @@ class TopologyDiscovery(app_manager.RyuApp):
         self.switches = []     # self.switches = [dpid,]
         self.links = []        # self.links = [{'src': {'sw': link.src.dpid, 'port': link.src.port_no},
                                #              'dst': {'sw': link.dst.dpid, 'port': link.dst.port_no}},]
-        self.hosts = {}        # self.hosts = {(sw,port):(ip, mac),}
+        self.hosts = {}        # {key : {"ip": arp_src_ip, "mac": mac,
+                               #         "sw_id": datapath.id, "sw_port": in_port}}
         # Start thread
         self.discover_thread = hub.spawn(self._discover)
         
@@ -78,8 +77,9 @@ class TopologyDiscovery(app_manager.RyuApp):
 
         # Formatting topology
         self.switches  = [sw.dp.id for sw in switch_list]
-        self.links = [{'src': {'sw': link.src.dpid, 'port': link.src.port_no},
-                 'dst': {'sw': link.dst.dpid, 'port': link.dst.port_no}} for link in links_list]
+        self.links = [{"sw_src_id": link.src.dpid, "sw_src_port": link.src.port_no,
+                       "sw_dst_id": link.dst.dpid, 'sw_dst_port': link.dst.port_no} 
+                       for link in links_list]
 	
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
@@ -96,14 +96,18 @@ class TopologyDiscovery(app_manager.RyuApp):
         if arp_pkt:
             arp_src_ip = arp_pkt.src_ip
             mac = arp_pkt.src_mac
-            self.hosts.update({(datapath.id, in_port):(arp_src_ip, mac)})
+            #self.hosts.update({(datapath.id, in_port):(arp_src_ip, mac)})
+            key = mac + "_" + arp_src_ip
+            self.hosts.update({key : {"ip": arp_src_ip, "mac": mac, 
+                                      "sw_id": datapath.id, "sw_port": in_port}})
         elif ip_pkt:
             ip_src_ip = ip_pkt.src
             eth = pkt.get_protocols(ethernet.ethernet)[0]
             mac = eth.src
-            self.hosts.update({(datapath.id, in_port):(ip_src_ip, mac)})
-        else:
-            pass
+            #self.hosts.update({(datapath.id, in_port):(ip_src_ip, mac)})
+            key = mac + "_" + ip_src_ip
+            self.hosts.update({key: {"ip": ip_src_ip, "mac": mac, 
+                                     "sw_id": datapath.id, "port": in_port}})
 
     def _discover(self):
         while True:
@@ -114,4 +118,4 @@ class TopologyDiscovery(app_manager.RyuApp):
             print(self.links)
             print("# Hosts")
             print(self.hosts)
-            hub.sleep(10)
+            hub.sleep(5)
