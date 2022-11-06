@@ -118,4 +118,4 @@ class TopologyDiscovery(app_manager.RyuApp):
             print(self.links)
             print("# Hosts")
             print(self.hosts)
-            hub.sleep(5)
+            hub.sleep(10)
