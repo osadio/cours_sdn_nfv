@@ -33,11 +33,9 @@ class TopologyDiscovery(app_manager.RyuApp):
     def __init__(self, *args, **kwargs):
         super(TopologyDiscovery, self).__init__(*args, **kwargs)
         self.topology_api_app = self
-        self.switches = []     # self.switches = [dpid,]
-        self.links = []        # self.links = [{'src': {'sw': link.src.dpid, 'port': link.src.port_no},
-                               #              'dst': {'sw': link.dst.dpid, 'port': link.dst.port_no}},]
-        self.hosts = {}        # {key : {"ip": arp_src_ip, "mac": mac,
-                               #         "sw_id": datapath.id, "sw_port": in_port}}
+        self.switches = []
+        self.links = []
+        self.hosts = []
         # Start thread
         self.discover_thread = hub.spawn(self._discover)
         
@@ -77,14 +75,12 @@ class TopologyDiscovery(app_manager.RyuApp):
 
         # Formatting topology
         self.switches  = [sw.dp.id for sw in switch_list]
-        self.links = [{"sw_src_id": link.src.dpid, "sw_src_port": link.src.port_no,
-                       "sw_dst_id": link.dst.dpid, 'sw_dst_port': link.dst.port_no} 
-                       for link in links_list]
-	
+        self.links = [(link.src.dpid,link.dst.dpid,{'port':link.src.port_no}) for link in links_list]
+
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
         """
-           Dectect new hosts
+           Dectect new hosts via arp or ip packet
         """
         msg = ev.msg
         datapath = msg.datapath
@@ -96,26 +92,26 @@ class TopologyDiscovery(app_manager.RyuApp):
         if arp_pkt:
             arp_src_ip = arp_pkt.src_ip
             mac = arp_pkt.src_mac
-            #self.hosts.update({(datapath.id, in_port):(arp_src_ip, mac)})
-            key = mac + "_" + arp_src_ip
-            self.hosts.update({key : {"ip": arp_src_ip, "mac": mac, 
-                                      "sw_id": datapath.id, "sw_port": in_port}})
+            link_host_sw = (arp_src_ip, datapath.id, {"port":in_port})
+            if link_host_sw not in self.hosts:
+                self.hosts.append(link_host_sw)
+            link_sw_host = (datapath.id, arp_src_ip, {"port":in_port})
+            if link_sw_host not in self.hosts:
+                self.hosts.append(link_sw_host)
         elif ip_pkt:
             ip_src_ip = ip_pkt.src
             eth = pkt.get_protocols(ethernet.ethernet)[0]
             mac = eth.src
-            #self.hosts.update({(datapath.id, in_port):(ip_src_ip, mac)})
-            key = mac + "_" + ip_src_ip
-            self.hosts.update({key: {"ip": ip_src_ip, "mac": mac, 
-                                     "sw_id": datapath.id, "port": in_port}})
-
+            link_host_sw = (ip_src_ip, datapath.id, {"port":in_port})
+            if link_host_sw not in self.hosts:
+                self.hosts.append(link_host_sw)
+            link_sw_host = (datapath.id, ip_src_ip, {"port":in_port})
+            if link_sw_host not in self.hosts:
+                self.hosts.append(link_sw_host)
     def _discover(self):
         while True:
             print("\n")
-            print("# Switches list")
-            print(self.switches)
-            print("# Links")
-            print(self.links)
-            print("# Hosts")
-            print(self.hosts)
-            hub.sleep(10)
+            print("Switches :", self.switches)
+            print("Links : ", self.links)
+            print("Hosts : ", self.hosts)
+            hub.sleep(5)
