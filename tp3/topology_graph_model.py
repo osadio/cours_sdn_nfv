@@ -8,11 +8,12 @@ from ryu.lib.packet import ethernet
 from ryu.lib.packet import ether_types
 from ryu.lib.packet import ipv4
 from ryu.lib.packet import arp
+from ryu.lib import hub
 
 from ryu.topology import event, switches
 from ryu.topology.api import get_switch, get_link
 
-import networkx as nx
+import time
 
 
 class TopologyDiscovery(app_manager.RyuApp):
@@ -34,10 +35,9 @@ class TopologyDiscovery(app_manager.RyuApp):
         self.topology_api_app = self
         self.switches = []
         self.links = []
-        self.hosts = {}
-        self.arp_proxy_table = {}  # {ip:mac}
-        self.mac_to_port = {}      # {dpid:{mac:port}}
-        self.network = nx.DiGraph() 
+        self.hosts = []
+        # Start thread
+        self.discover_thread = hub.spawn(self._discover)
         
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -49,113 +49,69 @@ class TopologyDiscovery(app_manager.RyuApp):
                    ofproto.OFPCML_NO_BUFFER)]
         self.add_flow(datapath, 0, match, actions)
 
+    def add_flow(self, datapath, priority, match, actions, buffer_id=None,):
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS, actions)]
+        if buffer_id:
+            mod = parser.OFPFlowMod(datapath=datapath,
+                                    buffer_id=buffer_id,
+                                    priority=priority, match=match,
+                                    instructions=inst)
+        else:
+            mod = parser.OFPFlowMod(datapath=datapath,
+                                    priority=priority, match=match,
+                                    instructions=inst)
+        datapath.send_msg(mod)
+
     @set_ev_cls(events)
     def get_topology(self, ev):
+        """
+             Get topology infos
+        """
+	# Get topology
         switch_list = get_switch(self.topology_api_app, None)
         links_list = get_link(self.topology_api_app, None)
 
+        # Formatting topology
         self.switches  = [sw.dp.id for sw in switch_list]
         self.links = [(link.src.dpid,link.dst.dpid,{'port':link.src.port_no}) for link in links_list]
 
-        self.network.add_nodes_from(self.switches)
-        self.network.add_edges_from(self.links)
-        print("nodes:", list(self.network.nodes))
-        print("links:", list(self.network.edges))
-        print("\n")
-
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
+        """
+           Dectect new hosts via arp or ip packet
+        """
         msg = ev.msg
         datapath = msg.datapath
         in_port = msg.match['in_port']
         pkt = packet.Packet(msg.data)
-        eth = pkt.get_protocols(ethernet.ethernet)[0]
         arp_pkt = pkt.get_protocol(arp.arp)
         ip_pkt = pkt.get_protocol(ipv4.ipv4)
 
-        if datapath.id in self.mac_to_port.keys():
-            self.mac_to_port[datapath.id].update({eth.src : in_port})
-        else:
-            self.mac_to_port[datapath.id] = {eth.src : in_port}
-
         if arp_pkt:
             arp_src_ip = arp_pkt.src_ip
-            arp_src_mac = arp_pkt.src_mac
-            self.add_host(arp_src_ip, datapath.id, in_port) 
-            self.arp_proxy(msg, datapath, in_port, eth, arp_pkt)
+            mac = arp_pkt.src_mac
+            link_host_sw = (arp_src_ip, datapath.id, {"port":in_port})
+            if link_host_sw not in self.hosts:
+                self.hosts.append(link_host_sw)
+            link_sw_host = (datapath.id, arp_src_ip, {"port":in_port})
+            if link_sw_host not in self.hosts:
+                self.hosts.append(link_sw_host)
         elif ip_pkt:
             ip_src_ip = ip_pkt.src
-            ip_src_mac = eth.src
-            ip_dst_ip = ip_pkt.dst
-            self.add_host(ip_src_ip, datapath.id, in_port)
-            if not(self.network.has_node(ip_src_ip) and self.network.has_node(ip_dst_ip)):
-                return
-            # Generate all simple paths in the graph G from source to target, 
-            # starting from shortest ones
-            print(f"\nSimples paths determination: src={ip_src_ip}, dst={ip_dst_ip}")
-            shortest_paths = nx.shortest_simple_paths(self.network, ip_src_ip, ip_dst_ip)
-            print(list(shortest_paths))
-
-    def add_host(self, host_ip, sw_id, sw_port):
-        # Do not update if previous infos do not change
-        if self.network.get_edge_data(sw_id, host_ip) \
-              and sw_port == self.network.get_edge_data(sw_id, host_ip)["port"]:
-           return
-        dst_mac_ = self.arp_proxy_table.get(host_ip)
-        if dst_mac_:
-            return 
-        print(f"Adding host: {host_ip} in switch (id: {sw_id}, port: {sw_port})")
-        if self.network.has_node(host_ip):
-            self.network.remove_node(host_ip)
-        self.network.add_node(host_ip)
-        self.network.add_edge(host_ip, sw_id)
-        self.network.add_edge(sw_id, host_ip, port=sw_port)
-        print(list(self.network.edges))
-
-    def arp_proxy(self, msg, datapath, in_port, eth, arp_pkt):
-        src_ip = arp_pkt.src_ip
-        src_mac = arp_pkt.src_mac
-        dst_ip = arp_pkt.dst_ip
- 
-        self.arp_proxy_table[src_ip] = src_mac
-
-        parser = datapath.ofproto_parser 
-        ofproto = datapath.ofproto
-        data = None
-        out_port = None
-        actions = []
-
-        if arp_pkt.opcode == arp.ARP_REQUEST:
-            dst_mac_ = self.arp_proxy_table.get(dst_ip)
-            if not dst_mac_:
-                data = msg.data
-                out_port = ofproto.OFPP_FLOOD
-            else:
-                out_port = in_port
-                pkt = packet.Packet()
-
-                pkt.add_protocol(
-                    ethernet.ethernet(
-                        ethertype=eth.ethertype,
-                        dst = eth.src,
-                        src = dst_mac_
-                    )
-                )
-
-                pkt.add_protocol(
-                    arp.arp(
-                        opcode=arp.ARP_REPLY,
-                        src_mac= dst_mac_,
-                        src_ip = dst_ip,
-                        dst_mac= src_mac,
-                        dst_ip = src_ip
-                     )
-                )
-
-                pkt.serialize()
-                data = pkt
-
-            actions.append(datapath.ofproto_parser.OFPActionOutput(out_port))
-            out = parser.OFPPacketOut(datapath=datapath, buffer_id=ofproto.OFP_NO_BUFFER,
-                                in_port=ofproto.OFPP_CONTROLLER, actions=actions, data=data) 
-            datapath.send_msg(out)
+            eth = pkt.get_protocols(ethernet.ethernet)[0]
+            mac = eth.src
+            link_host_sw = (ip_src_ip, datapath.id, {"port":in_port})
+            if link_host_sw not in self.hosts:
+                self.hosts.append(link_host_sw)
+            link_sw_host = (datapath.id, ip_src_ip, {"port":in_port})
+            if link_sw_host not in self.hosts:
+                self.hosts.append(link_sw_host)
+    def _discover(self):
+        while True:
+            print("\n")
+            print("Switches :", self.switches)
+            print("Links : ", self.links)
+            print("Hosts : ", self.hosts)
+            hub.sleep(5)
