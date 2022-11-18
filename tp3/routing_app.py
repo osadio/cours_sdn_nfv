@@ -178,7 +178,7 @@ class TopologyDiscovery(app_manager.RyuApp):
             path = shortest_path[0]
         if not path:
             return
-        print(f"Selected path (weight={weight}): + {path}")
+        print(f"Selected path (weight={weight}): {path}")
 
         ip_src = path[0]
         ip_dst = path[-1]
