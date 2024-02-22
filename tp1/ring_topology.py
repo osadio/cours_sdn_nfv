@@ -20,9 +20,9 @@ class MyTopo( Topo ):
         self.addLink(h3, s3, cls=TCLink, bw=1000, delay=1)
 
         # Add links Switch to Swttch
-        self.addLink(s1, s2, cls=TCLink, bw=10000, delay=1)
-        self.addLink(s2, s3, cls=TCLink, bw=100, delay=25)
-        self.addLink(s3, s4, cls=TCLink, bw=1000, delay=10)
-        self.addLink(s4, s1, cls=TCLink, bw=10000, delay=1)
+        self.addLink(s1, s2, cls=TCLink, bw=1000, delay=1)
+        self.addLink(s2, s3, cls=TCLink, bw=10, delay=25)
+        self.addLink(s3, s4, cls=TCLink, bw=100, delay=10)
+        self.addLink(s4, s1, cls=TCLink, bw=1000, delay=1)
 
 topos = { "mytopo": ( lambda: MyTopo() ) }
