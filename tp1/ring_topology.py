@@ -4,10 +4,10 @@ from mininet.link import TCLink
 class MyTopo( Topo ):  
      def build( self ):     
         # Add Switches
-        s1 = self.addSwitch("s1", stp=True)
-        s2 = self.addSwitch("s2", stp=True)
-        s3 = self.addSwitch("s3", stp=True)
-        s4 = self.addSwitch("s4", stp=True)
+        s1 = self.addSwitch("s1", stp=True, failMode="standalone")
+        s2 = self.addSwitch("s2", stp=True, failMode="standalone")
+        s3 = self.addSwitch("s3", stp=True, failMode="standalone")
+        s4 = self.addSwitch("s4", stp=True, failMode="standalone")
 
         # Add Hosts
         h1 = self.addHost("h1", ip="10.0.0.1")
