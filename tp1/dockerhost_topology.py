@@ -7,8 +7,7 @@ from mininet.log import info, setLogLevel
 from mininet.node import Controller
 
 def myTopo():
-    # xterms=True, spawn xterms for all nodes after net.start()
-    net = Containernet(controller=Controller, link=TCLink, xterms=True)
+    net = Containernet(controller=Controller, link=TCLink)
 
     info("*** Adding controller\n")
     net.addController("c0")
