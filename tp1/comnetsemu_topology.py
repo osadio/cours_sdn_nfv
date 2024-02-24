@@ -1,3 +1,5 @@
+#! /usr/bin/env python3
+
 from comnetsemu.cli import CLI
 from comnetsemu.net import Containernet
 from mininet.link import TCLink
